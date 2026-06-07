@@ -1,0 +1,27 @@
+# Environnement
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# Secrets (ne JAMAIS pusher)
+.streamlit/secrets.toml
+
+# Notebooks d'évaluation et données d'entraînement
+notebooks/
+data_eval/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
