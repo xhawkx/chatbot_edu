@@ -1,7 +1,16 @@
 from pathlib import Path
 
-_CADRAGE_PATH = Path(__file__).parent.parent / "data" / "cadrage_prompt.txt"
-_CADRAGE = _CADRAGE_PATH.read_text(encoding="utf-8")
+_CADRAGE_DIR = Path(__file__).parent.parent / "data" / "cadrage"
+_CADRAGE_DEFAULT = (_CADRAGE_DIR / "default.txt").read_text(encoding="utf-8")
+
+
+def _load_cadrage(slug: str | None = None) -> str:
+    if slug:
+        path = _CADRAGE_DIR / f"{slug}.txt"
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+    return _CADRAGE_DEFAULT
+
 
 CONSIGNE_BRIEVETE = (
     "Réponds en 1 à 2 phrases courtes maximum. "
@@ -23,9 +32,9 @@ CONSIGNE_BRIEVETE = (
 )
 
 
-def build_system_prompt(cours_texte: str) -> str:
+def build_system_prompt(cours_texte: str, cadrage_slug: str | None = None) -> str:
     return (
-        _CADRAGE
+        _load_cadrage(cadrage_slug)
         + """
 
 CONTENU DU COURS :
@@ -59,6 +68,10 @@ COMMENT CHOISIR TON TYPE DE RÉPONSE (3 cas, dans cet ordre) :
    → Réponds EXACTEMENT : "Cette information ne figure pas dans le cours fourni."
 
 RÈGLE ANTI-CONFUSION CAS 2 / CAS 3 (CRITIQUE) :
+- Si le vocabulaire de l'élève est approximatif ou informel mais qu'une notion
+  du cours correspond à ce qu'il demande, réponds directement (CAS 1). Un mot
+  mal choisi ou imprécis ne justifie pas une demande de précision — seule une
+  vraie contradiction entre interprétations plausibles la justifie.
 - Si la notion évoquée EXISTE dans le cours, même si la
   formulation est vague ou en langage SMS → c'est le CAS 2, PAS le cas 3.
 - Le cas 3 est réservé aux sujets étrangers au cours (autre matière, autre
@@ -67,6 +80,12 @@ RÈGLE ANTI-CONFUSION CAS 2 / CAS 3 (CRITIQUE) :
   question fournit ses données, applique le cas 1.
 - En cas de doute entre répondre et refuser, RÉPONDS (cas 1).
 - En cas de doute entre clarifier et refuser, préfère le cas 2.
+- En cas de doute entre répondre (CAS 1) et clarifier (CAS 2) : si une
+  interprétation naturelle de la question est couverte par le cours, RÉPONDS
+  selon cette interprétation — ne demande pas de précision.
+  Le CAS 2 ne s'applique que si les interprétations plausibles mèneraient à
+  des réponses contradictoires entre elles, et qu'aucune ne peut être écartée
+  sans contexte supplémentaire.
 
 RÈGLES DE FOND :
 - Il est INTERDIT d'utiliser tes connaissances générales pour compléter une réponse.
