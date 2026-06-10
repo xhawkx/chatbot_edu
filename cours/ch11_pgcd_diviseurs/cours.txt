@@ -1,0 +1,76 @@
+\section*{\textcolor{primary}Le Plus Grand Commun Diviseur (PGCD)
+
+Définition : On appelle plus grand commun diviseur de deux nombres naturels $a$ et $b$ le plus grand diviseur commun à ces deux nombres. On le note : $\PGCD(a; b)$.
+
+Exemple :
+
+- Les diviseurs de 24 sont : $\{1, 2, 3, 4, 6, 8, 12, 24\}$
+- Les diviseurs de 36 sont : $\{1, 2, 3, 4, 6, 9, 12, 18, 36\}$
+- Les diviseurs communs à 24 et 36 sont : $\{1, 2, 3, 4, 6, 12\}$
+- Donc : $\PGCD(24; 36) = 12$
+
+Résultats immédiats :
+
+Soient $a$ et $b$ deux nombres naturels :
+
+- $\PGCD(a; a) = a$ \quad (Exemple : $\PGCD(50; 50) = 50$)
+- $\PGCD(a; 0) = a$ \quad (Exemple : $\PGCD(13; 0) = 13$)
+- Si $b$ est un diviseur de $a$, alors : $\PGCD(a; b) = b$ \quad (Exemple : $\PGCD(30; 10) = 10$)
+
+\section*{\textcolor{primary}Nombres premiers entre eux
+
+Définition : Deux nombres naturels $a$ et $b$ sont premiers entre eux lorsque leur plus grand commun diviseur est égal à 1.
+\[ \PGCD(a; b) = 1 \]
+
+Exemple : 14 et 25 sont-ils premiers entre eux ?
+
+- Diviseurs de 14 : $\{1, 2, 7, 14\}$
+- Diviseurs de 25 : $\{1, 5, 25\}$
+- Comme leur seul diviseur commun est 1, alors $\PGCD(14; 25) = 1$.
+- Conclusion : 14 et 25 sont premiers entre eux.
+
+\section*{\textcolor{primary}Fractions irréductibles
+
+La fraction $\frac{a}{b}$ est irréductible si $a$ et $b$ sont premiers entre eux.
+
+Règle de simplification : Pour simplifier une fraction, on divise le numérateur et le dénominateur par leur plus grand commun diviseur.
+
+Exemple : Simplifier la fraction $\frac{28}{42}$
+
+- On a $\PGCD(28; 42) = 14$
+- $\frac{28 \div 14}{42 \div 14} = \frac{2}{3}$
+- La fraction $\frac{2}{3}$ est irréductible car $\PGCD(2; 3) = 1$.
+
+\section*{\textcolor{primary}Méthodes de calcul du PGCD : algorithme d’Euclide
+
+Cette méthode repose sur les divisions euclidiennes successives (la méthode des soustractions successives n’est pas toujours efficace pour les grands nombres).
+
+Méthode :
+$\PGCD(a; b)$ est le dernier reste non nul dans la suite des divisions euclidiennes successives.
+
+Exemple d’application : calcul de $\PGCD(252; 140)$
+
+\beginenumerate
+- On divise 252 par 140 :
+\[ 252 = 140 \times 1 + \textbf{112} \]
+
+- On divise le diviseur précédent (140) par le reste (112) :
+\[ 140 = 112 \times 1 + \textbf{28} \]
+
+- On divise le diviseur précédent (112) par le reste (28) :
+\[ 112 = 28 \times 4 + \textbf{0} \]
+\endenumerate
+
+Conclusion : le dernier reste non nul est 28.
+
+Donc : $\PGCD(252; 140) = 28$.
+
+Conseil méthodologique :
+
+Lorsqu’on simplifie une fraction, si l’on divise directement par le PGCD, on obtient la fraction irréductible en une seule étape.
+
+
+
+L’algorithme d’Euclide est toujours le plus rapide lors des examens, surtout avec de grands nombres !
+
+```

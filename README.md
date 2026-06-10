@@ -5,7 +5,7 @@ Outil d'aide à l'apprentissage pour élèves (niveau collège / BEM). Le chatbo
 Le projet comprend deux composants :
 
 - **`app.py`** — interface Streamlit pour une utilisation interactive par un élève.
-- **`notebooks/groq_batch.ipynb`** — pipeline d'évaluation en batch : plusieurs LLMs en parallèle, export Excel multi-onglets avec scoring sémantique.
+- **`groq_batch.ipynb`** — pipeline d'évaluation en batch : plusieurs LLMs en parallèle, export Excel multi-onglets avec scoring sémantique.
 
 ---
 
@@ -16,6 +16,7 @@ Le projet comprend deux composants :
 - Logique à 3 cas : répondre / demander une précision / refuser poliment
 - Authentification simple (identifiants via `st.secrets`)
 - Sélection du modèle LLM en temps réel
+- **Mode juge LLM** : un second modèle évalue et corrige la réponse du premier avant de l'afficher
 - Évaluation en batch multi-modèles avec scoring cosine (onglet `Récap`)
 
 ## Modèles disponibles (via OpenRouter)
@@ -38,6 +39,8 @@ source .venv/Scripts/activate   # Windows bash
 pip install -r requirements.txt
 ```
 
+`requirements.txt` contient uniquement les dépendances de l'application web (`streamlit`, `openai`). Les dépendances du notebook d'évaluation (`groq`, `sentence-transformers`, `scikit-learn`, etc.) s'installent séparément via la cellule `%pip install` en tête de `groq_batch.ipynb`.
+
 ## Configuration
 
 ### Clé API
@@ -46,9 +49,8 @@ La clé OpenRouter est lue dans cet ordre de priorité :
 
 1. `st.secrets["OPENROUTER_API_KEY"]` (Streamlit Cloud)
 2. Variable d'environnement `OPENROUTER_API_KEY`
-3. Variable utilisateur Windows (fallback PowerShell)
 
-En local, définir la variable d'environnement utilisateur Windows **ou** créer `.streamlit/secrets.toml` :
+En local, créer `.streamlit/secrets.toml` :
 
 ```toml
 OPENROUTER_API_KEY = "sk-or-..."
@@ -79,13 +81,16 @@ chatbot_edu/
 │   ├── auth.py                     # Authentification
 │   ├── latex.py                    # Nettoyage LaTeX
 │   ├── llm.py                      # Appels LLM (OpenRouter)
-│   └── prompt.py                   # Construction du prompt système
+│   ├── prompt.py                   # Construction du prompt système
+│   └── judge.py                    # Juge LLM (évaluation/correction)
 ├── data/
-│   ├── cadrage_prompt.txt          # Cadrage pédagogique générique
+│   ├── cadrage/
+│   │   ├── default.txt             # Cadrage pédagogique générique
+│   │   ├── gpt-oss-120b.txt        # Cadrages spécifiques par modèle
+│   │   └── ...
 │   ├── Cours_CH_11_clean.txt       # Cours source (remplaçable)
 │   └── Lot2_questions_CH11.xlsx    # Questions d'évaluation
-├── notebooks/
-│   └── groq_batch.ipynb            # Pipeline d'évaluation en batch
+├── groq_batch.ipynb                # Pipeline d'évaluation en batch
 └── requirements.txt
 ```
 
@@ -94,7 +99,7 @@ chatbot_edu/
 ## Pipeline d'évaluation (notebook)
 
 1. Activer/désactiver les modèles dans le dict `MODELS` (cellule `95e389e4`).
-2. Exécuter `notebooks/groq_batch.ipynb` (kernel Python + clés API requises).
+2. Exécuter `groq_batch.ipynb` (kernel Python + clés API requises).
 3. Analyser `data/<cours>_reponses_llm.xlsx` :
    - Onglet `Récap` : vue globale par modèle
    - Onglets par feuille : détail question par question
@@ -102,7 +107,7 @@ chatbot_edu/
 
 ## Changer de cours
 
-Modifier uniquement `COURS_PATH` dans la cellule `2acd1369` du notebook, ou charger un nouveau fichier `.txt` via l'interface Streamlit. Le cadrage pédagogique (`cadrage_prompt.txt`) est générique et ne doit pas mentionner de notions propres au cours courant.
+Modifier uniquement `COURS_PATH` dans la cellule `2acd1369` du notebook, ou charger un nouveau fichier `.txt` via l'interface Streamlit. Le cadrage pédagogique (`data/cadrage/default.txt`) est générique et ne doit pas mentionner de notions propres au cours courant.
 
 ---
 
@@ -110,4 +115,4 @@ Modifier uniquement `COURS_PATH` dans la cellule `2acd1369` du notebook, ou char
 
 - `max_tokens=150` — suffisant pour des réponses synthétiques, évite la verbosité.
 - Retry automatique sur erreur 429 (rate limit), délai extrait du message d'erreur.
-- Le cours CH11 fait ~2 400 caractères et tient dans le contexte. Pour un cours plus long, consulter l'historique git pour récupérer le pipeline RAG (`groq_batch_rag.ipynb`).
+- Le cours CH11 fait ~2 400 caractères et tient dans le contexte. Pour un cours plus long, consulter l'historique git pour récupérer le pipeline RAG.

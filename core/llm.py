@@ -35,12 +35,15 @@ def call_one(question: str, system_prompt: str, api_key: str,
              base_url: str = DEFAULT_BASE_URL,
              max_tokens: int = DEFAULT_MAX_TOKENS,
              max_retries: int = 3,
-             add_consigne: bool = True) -> str:
+             add_consigne: bool = True,
+             historique: list | None = None) -> str:
     """Interroge un modèle et retourne sa réponse textuelle.
 
     La clé API est injectée par l'appelant (la couche métier ne devine pas la
     config). Lève `LLMError` en cas de problème technique.
     Passer `add_consigne=False` pour les appels non pédagogiques (ex. juge).
+    `historique` : liste de tours {"role", "content"} insérés avant la question
+    courante (multi-turn). None = appel sans contexte conversationnel.
     """
     if not api_key:
         raise LLMError("Clé API manquante.")
@@ -54,10 +57,10 @@ def call_one(question: str, system_prompt: str, api_key: str,
     else:
         user_content = question
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user",   "content": user_content},
-    ]
+    messages = [{"role": "system", "content": system_prompt}]
+    if historique:
+        messages.extend(historique)
+    messages.append({"role": "user", "content": user_content})
 
     for attempt in range(max_retries):
         try:
