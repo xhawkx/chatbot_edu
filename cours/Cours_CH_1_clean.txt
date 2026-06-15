@@ -1,0 +1,219 @@
+LES DIVISEURS D'UN NOMBRE NATUREL
+
+Définition :
+On dit que b est un diviseur du nombre naturel a lorsque le reste de la division euclidienne de a par b est égal à 0.
+
+Autrement dit :
+a = b × q
+
+ou encore :
+a = b × q + r, avec r = 0.
+
+Exemple :
+6 est un diviseur de 120 car :
+120 = 6 × 20.
+
+On peut également dire que 120 est divisible par 6.
+
+--------------------------------------------------
+
+PROPRIÉTÉS DES DIVISEURS
+
+Si un nombre n divise a et b, c'est-à-dire si :
+a = n × k
+et
+b = n × m,
+
+alors n divise également :
+
+- leur somme :
+  a + b = n × (k + m)
+
+- leur différence :
+  a - b = n × (k - m)
+
+Exemple :
+5 divise 30 et 20 car :
+30 = 5 × 6
+20 = 5 × 4
+
+Donc :
+30 - 20 = 5 × (6 - 4) = 10.
+
+Ainsi, 5 divise 10.
+
+--------------------------------------------------
+
+DIVISEURS COMMUNS
+
+Les diviseurs communs de deux nombres sont les nombres qui divisent ces deux nombres.
+
+Exemple :
+
+Diviseurs de 12 :
+{1, 2, 3, 4, 6, 12}
+
+Diviseurs de 18 :
+{1, 2, 3, 6, 9, 18}
+
+Diviseurs communs à 12 et 18 :
+{1, 2, 3, 6}
+
+--------------------------------------------------
+
+PLUS GRAND COMMUN DIVISEUR (PGCD)
+
+Le plus grand des diviseurs communs de deux nombres est appelé le plus grand commun diviseur. On le note PGCD(a ; b).
+
+Exemple :
+
+PGCD(12 ; 18) = 6.
+
+--------------------------------------------------
+
+NOMBRES PREMIERS ENTRE EUX
+
+Deux nombres naturels a et b sont premiers entre eux lorsque leur plus grand commun diviseur est égal à 1.
+
+PGCD(a ; b) = 1.
+
+Exemple :
+14 et 25 sont premiers entre eux car leur seul diviseur commun est 1.
+
+--------------------------------------------------
+
+À RETENIR
+
+Si b est un diviseur de a, alors :
+
+- a est divisible par b ;
+- a est un multiple de b.
+
+Exemples :
+
+3 est un diviseur de 9 :
+- 9 est divisible par 3 ;
+- 9 est un multiple de 3.
+
+4 est un diviseur de 12 :
+- 12 est divisible par 4 ;
+- 12 est un multiple de 4.
+
+De plus :
+- 1 divise tous les nombres naturels ;
+- tout nombre naturel non nul se divise lui-même.
+
+--------------------------------------------------
+
+TEST DE COMPRÉHENSION
+
+Quel nombre divise à la fois 15 et 25 ?
+
+- 3
+- 5
+- 10
+
+Réponse :
+PGCD(15 ; 25) = 5.
+
+Le bon choix est donc : 5.
+
+--------------------------------------------------
+
+MÉTHODE POUR DÉTERMINER TOUS LES DIVISEURS D'UN NOMBRE NATUREL
+(Méthode du carré)
+
+Idée générale :
+
+Pour trouver tous les diviseurs d'un nombre sans répétition, il suffit de tester les nombres jusqu'à sa racine carrée.
+
+Étape 1 : Encadrement
+
+On encadre le nombre a entre deux carrés parfaits consécutifs :
+
+n² ≤ a < (n + 1)².
+
+On ne teste alors que les nombres de 1 à n.
+
+Étape 2 : Recherche des couples de diviseurs
+
+Pour chaque nombre b compris entre 1 et n :
+
+- on calcule c = a ÷ b ;
+- si c est un entier naturel, alors b et c sont des diviseurs de a ;
+- sinon, on passe au nombre suivant.
+
+Étape 3 : Règle des couples
+
+Si :
+
+a ÷ b = c,
+
+alors :
+
+a = b × c.
+
+Le couple {b ; c} est donc un couple de diviseurs.
+
+Chaque petit diviseur fournit immédiatement un grand diviseur associé.
+
+Étape 4 : Vérification
+
+On vérifie que :
+
+b × c = a.
+
+Si cette égalité est vraie, le couple de diviseurs est correct.
+
+--------------------------------------------------
+
+EXEMPLE : DÉTERMINER LES DIVISEURS DE 32
+
+Étape 1 : Encadrement
+
+25 < 32 < 36,
+
+donc :
+
+5² < 32 < 6².
+
+On teste les nombres de 1 à 5.
+
+Étape 2 : Recherche des couples
+
+32 ÷ 1 = 32
+→ {1 ; 32}
+
+32 ÷ 2 = 16
+→ {2 ; 16}
+
+32 ÷ 3 n'est pas un entier
+→ 3 n'est pas un diviseur.
+
+32 ÷ 4 = 8
+→ {4 ; 8}
+
+32 ÷ 5 n'est pas un entier
+→ 5 n'est pas un diviseur.
+
+Étape 3 : Vérification
+
+1 × 32 = 32
+2 × 16 = 32
+4 × 8 = 32
+
+Résultat final :
+
+Les diviseurs de 32 sont :
+{1, 2, 4, 8, 16, 32}.
+
+--------------------------------------------------
+
+RÉSUMÉ DE LA MÉTHODE
+
+1. Encadrer le nombre entre deux carrés parfaits.
+2. Déterminer la valeur de n.
+3. Tester les divisions par les nombres de 1 à n.
+4. Chaque division exacte fournit un couple de diviseurs.
+5. Vérifier chaque couple à l'aide de la multiplication.
+6. Écrire tous les diviseurs sans répétition.

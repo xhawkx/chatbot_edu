@@ -1,4 +1,5 @@
 import os
+import tempfile
 import streamlit as st
 from core.auth import check_auth, login_form, logout
 from core.latex import nettoie_latex
@@ -72,9 +73,38 @@ with st.sidebar:
 
     verif_actif = st.session_state.get("verif_path") is not None
     st.caption(
-        f"Cours actif : **{cours_slug}** — {len(st.session_state['cours_texte'])} car. · "
+        f"Cours actif : **{st.session_state['cours_nom']}** — {len(st.session_state['cours_texte'])} car. · "
         f"vérif. calcul : {'✅' if verif_actif else '—'}"
     )
+
+    st.divider()
+
+    # ── Chargement d'un cours personnalisé ───────────────────────────
+    st.markdown("**Ou charger un cours personnalisé**")
+    uploaded_cours = st.file_uploader("Cours (.txt)", type=["txt"], key="up_cours")
+
+    mode_courant = st.session_state.get("mode", MODE_SINGLE)
+    if mode_courant == MODE_PIPELINE:
+        uploaded_verif = st.file_uploader(
+            "Vérificateur Python (.py) — optionnel", type=["py"], key="up_verif"
+        )
+    else:
+        uploaded_verif = None
+
+    if uploaded_cours is not None:
+        raw = uploaded_cours.read().decode("utf-8")
+        st.session_state["cours_texte"] = nettoie_latex(raw)
+        st.session_state["cours_nom"] = uploaded_cours.name
+        st.session_state["messages"] = []
+        if uploaded_verif is not None:
+            tmp = tempfile.NamedTemporaryFile(
+                suffix="_verif.py", delete=False, mode="w", encoding="utf-8"
+            )
+            tmp.write(uploaded_verif.read().decode("utf-8"))
+            tmp.close()
+            st.session_state["verif_path"] = tmp.name
+        else:
+            st.session_state["verif_path"] = None
 
     st.divider()
 
@@ -135,28 +165,39 @@ if user_input:
         st.write(user_input)
 
     with st.chat_message("assistant"):
-        with st.spinner("Réflexion…"):
-            api_key = get_api_key()
+        api_key = get_api_key()
 
-            # ════════════════════════════════════════════════════════════
-            #  MODE 3 — Pipeline 3 couches (Generator → Judge → Refine)
-            # ════════════════════════════════════════════════════════════
-            if mode == MODE_PIPELINE:
+        # ════════════════════════════════════════════════════════════
+        #  MODE 3 — Pipeline 3 couches (Generator → Judge → Refine)
+        # ════════════════════════════════════════════════════════════
+        if mode == MODE_PIPELINE:
+            cadrage_slug_pipe = MODELS[model_generateur].get("cadrage")
+            with st.status("Pipeline en cours…", expanded=True) as status:
+                st.write("⚙️ Génération de la réponse…")
                 resultat = repond(
                     user_input,
                     historique=historique,
                     cours_texte=st.session_state["cours_texte"],
                     api_key=api_key,
                     verif_path=st.session_state.get("verif_path"),
+                    cadrage_slug=cadrage_slug_pipe,
                     model_generateur=model_generateur,
                     model_juge=model_juge_pipe,
                 )
-                reponse_finale = resultat["reponse"]
+                if resultat["iterations"] > 0:
+                    st.write("⚖️ Jugement + correction effectués")
+                etat_final = "complete" if resultat["verdict"] in ("OK", "NOK", "CALCUL_FAUX") else "error"
+                status.update(label="Terminé", state=etat_final, expanded=False)
+            reponse_finale = resultat["reponse"]
+            if resultat["verdict"] == "ERREUR":
+                derniere_trace = resultat["trace"][-1] if resultat["trace"] else "Cause inconnue."
+                st.error(f"Erreur technique du pipeline : {derniere_trace}")
 
-            # ════════════════════════════════════════════════════════════
-            #  MODES 1 & 2 — Single / Avec juge
-            # ════════════════════════════════════════════════════════════
-            else:
+        # ════════════════════════════════════════════════════════════
+        #  MODES 1 & 2 — Single / Avec juge
+        # ════════════════════════════════════════════════════════════
+        else:
+            with st.spinner("Réflexion…"):
                 try:
                     cadrage_slug = MODELS[model_repondant].get("cadrage")
                     system_prompt = build_system_prompt(
