@@ -1,9 +1,11 @@
 import os
+import re
+import html as _html
 import tempfile
 import streamlit as st
 from core.auth import check_auth, login_form, logout
 from core.latex import nettoie_latex
-from core.prompt import build_system_prompt
+from core.prompt import build_system_prompt, LANG_FR, LANG_AR
 from core.llm import call_one, LLMError, MODELS, DEFAULT_MODEL
 from core.judge import call_judge
 from core.config import liste_cours, charge_cours
@@ -18,6 +20,20 @@ MODE_SINGLE = "💬 Single"
 MODE_JUGE = "⚖️ Avec juge"
 MODE_PIPELINE = "🧩 3 couches"
 MODES = [MODE_SINGLE, MODE_JUGE, MODE_PIPELINE]
+
+
+_AR_RE = re.compile(r"[؀-ۿ]")
+
+
+def write_msg(text: str, lang: str = LANG_FR) -> None:
+    """Affiche un message en respectant la direction RTL pour l'arabe."""
+    if lang == LANG_AR:
+        st.markdown(
+            f'<div dir="rtl" style="text-align:right">{_html.escape(text)}</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.write(text)
 
 
 def get_api_key() -> str:
@@ -111,6 +127,18 @@ with st.sidebar:
     # ── Choix du mode ────────────────────────────────────────────────────
     mode = st.radio("🛠️ Mode", options=MODES, key="mode")
 
+    # ── Choix de la langue (Mode 1 uniquement) ───────────────────────
+    if mode == MODE_SINGLE:
+        langue = st.radio(
+            "🌐 Langue",
+            options=[LANG_FR, LANG_AR],
+            format_func=lambda x: "Français" if x == LANG_FR else "عربي",
+            key="langue",
+            horizontal=True,
+        )
+    else:
+        langue = LANG_FR
+
     # Sélecteurs de modèles selon le mode.
     if mode == MODE_PIPELINE:
         model_generateur = st.selectbox(
@@ -149,10 +177,10 @@ if "messages" not in st.session_state:
 # Rejoue l'historique — on stocke la réponse finale uniquement
 for msg in st.session_state["messages"]:
     with st.chat_message(msg["role"]):
-        st.write(msg["content"])
+        write_msg(msg["content"], lang=langue)
 
 user_input = st.chat_input(
-    "Écris ta question ici…",
+    "Écris ta question ici…" if langue == LANG_FR else "اكتب سؤالك هنا…",
     disabled="cours_texte" not in st.session_state,
 )
 
@@ -162,7 +190,7 @@ if user_input:
 
     st.session_state["messages"].append({"role": "user", "content": user_input})
     with st.chat_message("user"):
-        st.write(user_input)
+        write_msg(user_input, lang=langue)
 
     with st.chat_message("assistant"):
         api_key = get_api_key()
@@ -197,15 +225,18 @@ if user_input:
         #  MODES 1 & 2 — Single / Avec juge
         # ════════════════════════════════════════════════════════════
         else:
-            with st.spinner("Réflexion…"):
+            with st.spinner("Réflexion…" if langue == LANG_FR else "جارٍ التفكير…"):
                 try:
                     cadrage_slug = MODELS[model_repondant].get("cadrage")
                     system_prompt = build_system_prompt(
-                        st.session_state["cours_texte"], cadrage_slug=cadrage_slug,
+                        st.session_state["cours_texte"],
+                        cadrage_slug=cadrage_slug,
+                        lang=langue,
                     )
                     reponse_brute = call_one(
                         question=user_input, system_prompt=system_prompt,
                         api_key=api_key, model_label=model_repondant,
+                        lang=langue,
                     )
                 except LLMError as e:
                     st.error(f"Le modèle répondant est indisponible : {e}")
@@ -227,7 +258,7 @@ if user_input:
 
         # Affichage de la réponse finale
         if reponse_finale:
-            st.write(reponse_finale)
+            write_msg(reponse_finale, lang=langue)
         else:
             st.warning("Aucune réponse produite (voir le détail ci-dessous).")
 

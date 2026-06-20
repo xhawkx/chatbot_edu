@@ -1,0 +1,4 @@
+FROM ministral-3:8b-instruct-2512-q4_K_M
+PARAMETER num_ctx 8192
+PARAMETER temperature 0
+PARAMETER num_predict 1024
