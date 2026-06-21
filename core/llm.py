@@ -7,6 +7,7 @@ MODELS = {
     "DeepSeek Chat v3":        {"provider": "openrouter", "name": "deepseek/deepseek-chat-v3-0324",                    "cadrage": "deepseek-chat-v3"},
     "Gemma 4 31B":             {"provider": "openrouter", "name": "google/gemma-4-31b-it:free",                        "cadrage": "gemma-4-31b"},
     "Gemini 2.5 Flash":        {"provider": "openrouter", "name": "google/gemini-2.5-flash",                           "cadrage": "gemini-2.5-flash"},
+    "Qwen3 235B A22B":         {"provider": "openrouter", "name": "qwen/qwen3-235b-a22b-2507",                        "cadrage": None},
 }
 
 DEFAULT_MODEL = "GPT-OSS 120B (défaut)"

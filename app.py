@@ -22,14 +22,26 @@ MODE_PIPELINE = "🧩 3 couches"
 MODES = [MODE_SINGLE, MODE_JUGE, MODE_PIPELINE]
 
 
-_AR_RE = re.compile(r"[؀-ۿ]")
+# Séquences contenant au moins un caractère LTR significatif (lettre latine,
+# chiffre, opérateur math) à isoler en dir=ltr dans un bloc RTL.
+# On exclut les ponctuations seules (parenthèses, points…) adjacentes à du
+# texte arabe : l'algorithme bidi du navigateur les gère correctement sans aide.
+_LTR_RUN = re.compile(
+    r"([^؀-ۿﭐ-﷿ﹰ-﻿\s]*[A-Za-z0-9=+\-*/×÷^<>|_][^؀-ۿﭐ-﷿ﹰ-﻿\s]*)"
+)
+
+
+def _bidi_format(text: str) -> str:
+    """Échappe le HTML puis isole en dir=ltr les séquences LTR significatives."""
+    escaped = _html.escape(text)
+    return _LTR_RUN.sub(r'<span dir="ltr">\1</span>', escaped)
 
 
 def write_msg(text: str, lang: str = LANG_FR) -> None:
     """Affiche un message en respectant la direction RTL pour l'arabe."""
     if lang == LANG_AR:
         st.markdown(
-            f'<div dir="rtl" style="text-align:right">{_html.escape(text)}</div>',
+            f'<div dir="rtl" style="text-align:right">{_bidi_format(text)}</div>',
             unsafe_allow_html=True,
         )
     else:
