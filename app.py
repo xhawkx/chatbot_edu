@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import html as _html
@@ -12,22 +13,28 @@ from core.config import liste_cours, charge_cours
 from core.pipeline.orchestrator import repond
 from core.pipeline.generator import GENERATOR_MODEL
 from core.pipeline.judge import JUDGE_MODEL
+from core.bilan import ResultatQuestion, generer_bilan
 
 st.set_page_config(page_title="Chatbot pédagogique v2", page_icon="📚", layout="centered")
 
-# Three comparable modes (single answer / LLM judge / 3-layer pipeline).
+# Four comparable modes.
 MODE_SINGLE = "💬 Single"
 MODE_JUGE = "⚖️ Avec juge"
 MODE_PIPELINE = "🧩 3 couches"
-MODES = [MODE_SINGLE, MODE_JUGE, MODE_PIPELINE]
+MODE_BILAN = "📋 Bilan élève"
+MODES = [MODE_SINGLE, MODE_JUGE, MODE_PIPELINE, MODE_BILAN]
 
 
 # Séquences contenant au moins un caractère LTR significatif (lettre latine,
 # chiffre, opérateur math) à isoler en dir=ltr dans un bloc RTL.
-# On exclut les ponctuations seules (parenthèses, points…) adjacentes à du
-# texte arabe : l'algorithme bidi du navigateur les gère correctement sans aide.
+# On capture la séquence ENTIÈRE — espaces et parenthèses internes compris —
+# tant qu'elle ne contient aucune lettre arabe ni saut de ligne. Ainsi une
+# formule comme « (a - b)² » reste dans UN seul span dir=ltr et n'est pas
+# réordonnée morceau par morceau par l'algorithme bidi (parenthèses inversées).
+# Une ponctuation seule (sans caractère significatif) n'est jamais capturée :
+# le navigateur la gère correctement à côté du texte arabe.
 _LTR_RUN = re.compile(
-    r"([^؀-ۿﭐ-﷿ﹰ-﻿\s]*[A-Za-z0-9=+\-*/×÷^<>|_][^؀-ۿﭐ-﷿ﹰ-﻿\s]*)"
+    r"([^؀-ۿﭐ-﷿ﹰ-﻿\n\r]*[A-Za-z0-9=+\-*/×÷^<>|_][^؀-ۿﭐ-﷿ﹰ-﻿\n\r]*)"
 )
 
 
@@ -119,6 +126,29 @@ with st.sidebar:
     else:
         uploaded_verif = None
 
+    if mode_courant == MODE_BILAN:
+        st.markdown("**Évaluation (QCM JSON)**")
+        uploaded_eval = st.file_uploader(
+            "Fichier évaluation (.json)", type=["json"], key="up_eval"
+        )
+        # On ne (ré)initialise QUE lorsqu'un nouveau fichier est chargé :
+        # st.file_uploader renvoie le même objet à chaque rerun, donc sans ce
+        # garde-fou l'index du quiz serait remis à 0 à chaque clic « Suivant ».
+        if uploaded_eval is not None and st.session_state.get("eval_nom") != uploaded_eval.name:
+            try:
+                questions_json = json.loads(uploaded_eval.read().decode("utf-8"))
+                st.session_state["eval_questions"] = questions_json
+                st.session_state["eval_nom"] = uploaded_eval.name
+                st.session_state["quiz_index"] = 0
+                st.session_state["quiz_reponses"] = {}
+                st.session_state["quiz_termine"] = False
+                st.session_state["bilan_texte"] = None
+                st.success(f"{len(questions_json)} question(s) chargée(s).")
+            except Exception as exc:
+                st.error(f"Fichier JSON invalide : {exc}")
+    else:
+        uploaded_eval = None
+
     if uploaded_cours is not None:
         raw = uploaded_cours.read().decode("utf-8")
         st.session_state["cours_texte"] = nettoie_latex(raw)
@@ -139,8 +169,8 @@ with st.sidebar:
     # ── Choix du mode ────────────────────────────────────────────────────
     mode = st.radio("🛠️ Mode", options=MODES, key="mode")
 
-    # ── Choix de la langue (Mode 1 uniquement) ───────────────────────
-    if mode == MODE_SINGLE:
+    # ── Choix de la langue (Modes Single & Bilan) ────────────────────
+    if mode in (MODE_SINGLE, MODE_BILAN):
         langue = st.radio(
             "🌐 Langue",
             options=[LANG_FR, LANG_AR],
@@ -163,6 +193,11 @@ with st.sidebar:
         )
         if model_generateur == model_juge_pipe:
             st.warning("Générateur et juge identiques : la vérification croisée perd son intérêt.")
+    elif mode == MODE_BILAN:
+        model_bilan = st.selectbox(
+            "🤖 Modèle bilan", options=model_keys, index=default_idx,
+            key="model_bilan",
+        )
     else:
         model_repondant = st.selectbox(
             "🤖 Modèle répondant", options=model_keys, index=default_idx,
@@ -181,6 +216,141 @@ with st.sidebar:
         st.rerun()
 
 # ── Zone principale ────────────────────────────────────────────────────────
+
+# ════════════════════════════════════════════════════════════
+#  MODE 4 — Bilan élève (quiz QCM + analyse LLM)
+# ════════════════════════════════════════════════════════════
+if mode == MODE_BILAN:
+    st.header("📋 Évaluation & Bilan pédagogique")
+
+    questions = st.session_state.get("eval_questions")
+    if not questions:
+        st.info("Charge un fichier JSON d'évaluation dans la barre latérale pour commencer.")
+        st.stop()
+
+    if "cours_texte" not in st.session_state:
+        st.warning("Sélectionne ou charge un cours dans la barre latérale.")
+        st.stop()
+
+    quiz_index = st.session_state.get("quiz_index", 0)
+    quiz_reponses: dict = st.session_state.get("quiz_reponses", {})
+    quiz_termine = st.session_state.get("quiz_termine", False)
+
+    # ── Phase quiz ───────────────────────────────────────────
+    if not quiz_termine:
+        total = len(questions)
+        st.progress(quiz_index / total, text=f"Question {quiz_index + 1} / {total}")
+
+        q = questions[quiz_index]
+        q_id = q.get("id", str(quiz_index))
+        question_text = nettoie_latex(q.get("question", ""))
+        choices_raw = q.get("choices", [])
+        choices = [nettoie_latex(c) for c in choices_raw]
+
+        st.markdown(f"**{quiz_index + 1}. {question_text}**")
+
+        aide = q.get("help", "")
+        if aide:
+            with st.expander("💡 Indice"):
+                st.write(nettoie_latex(aide))
+
+        selected = st.radio(
+            "Choisissez une réponse :",
+            options=list(range(len(choices))),
+            format_func=lambda i: choices[i],
+            key=f"radio_{q_id}",
+            index=None,
+        )
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if quiz_index > 0:
+                if st.button("⬅️ Précédent"):
+                    st.session_state["quiz_index"] = quiz_index - 1
+                    st.rerun()
+        with col2:
+            label_suivant = "Terminer ✅" if quiz_index == total - 1 else "Suivant ➡️"
+            if st.button(label_suivant):
+                if selected is None:
+                    st.warning("Sélectionne une réponse avant de continuer.")
+                else:
+                    # Stocke réponse 1-based
+                    quiz_reponses[q_id] = selected + 1
+                    st.session_state["quiz_reponses"] = quiz_reponses
+                    if quiz_index < total - 1:
+                        st.session_state["quiz_index"] = quiz_index + 1
+                    else:
+                        st.session_state["quiz_termine"] = True
+                    st.rerun()
+
+    # ── Phase bilan ──────────────────────────────────────────
+    else:
+        bilan_texte = st.session_state.get("bilan_texte")
+
+        # Construit la liste ResultatQuestion
+        resultats: list[ResultatQuestion] = []
+        for i, q in enumerate(questions):
+            q_id = q.get("id", str(i))
+            resultats.append(ResultatQuestion(
+                id=q_id,
+                question=nettoie_latex(q.get("question", "")),
+                choix=[nettoie_latex(c) for c in q.get("choices", [])],
+                bonnes_reponses=q.get("answers", []),
+                reponse_eleve=quiz_reponses.get(q_id),
+                explication=nettoie_latex(q.get("explanation", "")),
+                keywords=q.get("keywords", []),
+            ))
+
+        score = sum(1 for r in resultats if r.est_correct)
+        total = len(resultats)
+
+        st.subheader(f"Score : {score} / {total}")
+
+        # Tableau récapitulatif
+        with st.expander("📊 Détail des réponses", expanded=True):
+            for r in resultats:
+                icone = "✅" if r.est_correct else "❌"
+                st.markdown(f"{icone} **{r.question}**")
+                if not r.est_correct:
+                    st.caption(
+                        f"Ta réponse : {r.libelle_reponse_eleve}  |  "
+                        f"Bonne réponse : {r.libelle_bonne_reponse}"
+                    )
+                    if r.explication:
+                        st.caption(f"Explication : {r.explication}")
+
+        # Génération du bilan LLM
+        if bilan_texte is None:
+            if st.button("🤖 Générer le bilan pédagogique"):
+                api_key = get_api_key()
+                with st.spinner("Analyse en cours…" if langue == LANG_FR else "جارٍ التحليل…"):
+                    try:
+                        bilan_texte = generer_bilan(
+                            resultats=resultats,
+                            cours_texte=st.session_state["cours_texte"],
+                            api_key=api_key,
+                            model_label=st.session_state.get("model_bilan", DEFAULT_MODEL),
+                            lang=langue,
+                        )
+                        st.session_state["bilan_texte"] = bilan_texte
+                        st.rerun()
+                    except LLMError as e:
+                        st.error(f"Erreur lors de la génération du bilan : {e}")
+        else:
+            st.divider()
+            st.subheader("📝 Bilan pédagogique")
+            write_msg(bilan_texte, lang=langue)
+
+        st.divider()
+        if st.button("🔄 Recommencer l'évaluation"):
+            st.session_state["quiz_index"] = 0
+            st.session_state["quiz_reponses"] = {}
+            st.session_state["quiz_termine"] = False
+            st.session_state["bilan_texte"] = None
+            st.rerun()
+
+    st.stop()
+
 st.header("Pose ta question sur le cours")
 
 if "messages" not in st.session_state:
