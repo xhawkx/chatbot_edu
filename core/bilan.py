@@ -1,24 +1,14 @@
-"""Mode 4 — Bilan pédagogique.
+"""Mode 4 — Bilan pédagogique oral.
 
 Reçoit la liste des questions JSON (type QCM) + les réponses de l'élève,
-construit le prompt de bilan et appelle le LLM.
-
-Format QCM attendu (champ `answers` = liste 1-based) :
-  {
-    "id": "q_n2_014",
-    "question": "...",
-    "choices": ["choix A", "choix B", "choix C", "choix D"],
-    "answers": [1],          <- index 1-based de la/des bonne(s) réponse(s)
-    "explanation": "...",    <- optionnel
-    "keywords": [...],       <- optionnel
-    "type": "qcm"
-  }
+agrège les notions maîtrisées / à consolider, puis demande au LLM un texte
+fluide prêt pour la synthèse vocale (3 paragraphes, sans équations ni markdown).
 """
 
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from core.llm import call_one, LLMError, DEFAULT_MODEL
+from core.llm import call_one, DEFAULT_MODEL
 from core.prompt import LANG_FR, LANG_AR
 from core.latex import nettoie_latex
 
@@ -56,85 +46,82 @@ class ResultatQuestion:
         return " / ".join(labels)
 
 
-def _build_bilan_prompt(cours_texte: str, lang: str = LANG_FR) -> str:
-    """Construit le prompt système pour la génération du bilan."""
+def _agreger_notions(resultats: list[ResultatQuestion]) -> tuple[list[str], list[str]]:
+    """Retourne (notions_acquises, notions_lacunes) dédupliquées et triées."""
+    acquises: set[str] = set()
+    lacunes: set[str] = set()
+    for r in resultats:
+        if r.est_correct:
+            acquises.update(r.keywords)
+        else:
+            lacunes.update(r.keywords)
+    # Une notion présente dans les deux camps va dans lacunes (partiellement acquise)
+    return sorted(acquises - lacunes), sorted(lacunes)
+
+
+def _build_bilan_prompt(lang: str = LANG_FR) -> str:
     if lang == LANG_AR:
-        return f"""أنت معلّم لطيف يكتب حصيلة بيداغوجية لتلميذ بعد إجراء تقييم.
+        return """أنت معلّم يُعِدّ تقريراً شفهياً موجزاً لتلميذ بعد تقييم.
 
-محتوى الدرس (المرجع):
-{cours_texte}
+مهمتك: كتابة نص متدفّق يُقرأ بصوت عالٍ، مقسَّم إلى 3 فقرات فقط:
 
-مهمتك: حلّل نتائج التلميذ أدناه وأنتج حصيلة منظّمة في 3 أجزاء:
+الفقرة 1 — الأداء العام: اذكر النسبة المئوية للإجابات الصحيحة وأعطِ رأياً موجزاً في هذه النتيجة.
+الفقرة 2 — نقاط الضعف أولاً: المفاهيم التي يحتاج التلميذ إلى تعزيزها، بأسمائها فقط، دون ذكر معادلات أو أنواع الأسئلة.
+الفقرة 3 — نقاط القوة ثم التوجيه: المفاهيم التي يتقنها التلميذ، ثم جملة تشجيعية توجّهه نحو مواصلة العمل لسدّ الثغرات.
 
-1. **ملخّص الأداء**: النتيجة الإجمالية (X/Y)، ونبرة عامة حول النتائج (دون حكم قاسٍ).
-2. **النقاط المكتسبة**: المفاهيم أو أنواع الأسئلة التي يتقنها التلميذ (مع مثال واحد على الأقل لسؤال نجح فيه).
-3. **النقاط الواجب تعزيزها**: المفاهيم التي أخطأ فيها التلميذ، مع شرح موجز للطريقة الصحيحة مستمدّ من الدرس.
+القواعد الصارمة:
+- نص مستمر فقط: لا عناوين، لا قوائم نقطية، لا نجوم، لا شرطات في بداية السطر.
+- لا معادلات ولا صيغ رياضية من أي نوع.
+- سمِّ المفاهيم باسمها (مثل: التحليل، الضرب، المتطابقات...) دون أي تفصيل تقني.
+- أسلوب بسيط ومناسب لتلميذ في المتوسط، نبرة مشجّعة.
+- حوالي 80 كلمة كحد أقصى.
+- ابدأ مباشرةً بالفقرة الأولى.
+- أجب باللغة العربية."""
 
-قواعد التحرير:
-- كن مشجّعاً لكن صادقاً.
-- لا تَسرد كل سؤال آلياً. اجمع حسب المفهوم.
-- اعتمد فقط على الدرس المقدَّم لشرح الأخطاء، لكن أعِد الصياغة بكلماتك. لا تنسخ الدرس حرفياً.
-- موجز: حوالي 120 كلمة كحد أقصى للحصيلة كلها.
-- محظور تماماً استعمال ترميز LaTeX: لا $$، لا \\sqrt، لا \\frac، ولا أي أمر يبدأ بـ \\.
-  اكتب الرياضيات بصيغة بسيطة وقصيرة باستعمال الرموز العادية مثل ² و √ و ×.
-  تجنّب التعابير الرياضية الطويلة داخل الجمل العربية؛ اكتفِ بذكر اسم القاعدة عند الإمكان.
-- استعمل عناوين عريضة للأجزاء الثلاثة وقوائم نقطية قصيرة.
-- بدون مقدّمة ("بالطبع"، "إليك الحصيلة"…). ابدأ مباشرة بالجزء 1.
-- أجب باللغة العربية.
-"""
+    return """Tu es un enseignant qui prépare un compte-rendu oral et concis pour un élève après une évaluation.
 
-    return f"""Tu es un enseignant bienveillant qui rédige le bilan pédagogique d'un élève après une évaluation.
+Ta mission : écrire un texte fluide destiné à être lu à voix haute, en 3 paragraphes seulement :
 
-CONTENU DU COURS (référence) :
-{cours_texte}
+Paragraphe 1 — Performance globale : cite le pourcentage de bonnes réponses et donne un avis bref sur ce résultat.
+Paragraphe 2 — Points faibles d'abord : les notions que l'élève doit travailler, nommées simplement, sans équations ni types de questions.
+Paragraphe 3 — Points forts puis trajectoire : les notions maîtrisées, puis une phrase d'encouragement qui incite l'élève à combler ses lacunes.
 
-Ta mission : analyser les résultats de l'élève ci-dessous et produire un bilan structuré en 3 parties :
-
-1. **Résumé des performances** : score global (X/Y), ton général sur les résultats (sans jugement dur).
-2. **Points acquis** : les notions ou types de questions que l'élève maîtrise (au moins 1 exemple de question réussie).
-3. **Points à consolider** : les notions où l'élève a fait des erreurs, avec une explication courte de la bonne démarche tirée du cours.
-
-Règles de rédaction :
-- Sois encourageant mais honnête.
-- Ne liste pas mécaniquement chaque question. Regroupe par notion/concept.
-- Base-toi UNIQUEMENT sur le cours fourni, mais reformule avec tes mots. Ne recopie pas le cours mot pour mot.
-- Concis : environ 120 mots maximum pour tout le bilan.
-- STRICTEMENT INTERDIT d'utiliser du LaTeX : pas de $$, pas de \\sqrt, pas de \\frac, ni aucune commande commençant par \\.
-  Écris les maths simplement avec les symboles usuels (², √, ×). Garde les expressions mathématiques courtes,
-  ou cite simplement le nom de la règle plutôt qu'une longue formule.
-- Utilise des titres en gras pour les 3 parties et des listes à puces courtes.
-- Pas de préambule ("Bien sûr", "Voici le bilan"…). Commence directement par la Partie 1.
-- Réponds en français.
-"""
+Règles strictes :
+- Texte continu uniquement : pas de titres, pas de listes à puces, pas d'astérisques, pas de tirets en début de ligne.
+- Aucune équation, aucune formule mathématique d'aucune sorte.
+- Nomme les notions par leur nom (ex : factorisation, identités remarquables, développement…) sans détail technique.
+- Style simple adapté à un élève de collège, ton encourageant.
+- Environ 80 mots maximum.
+- Commence directement par le premier paragraphe.
+- Réponds en français."""
 
 
-def _build_bilan_question(resultats: list[ResultatQuestion], lang: str = LANG_FR) -> str:
-    """Construit le message utilisateur avec les résultats de l'élève."""
-    ar = lang == LANG_AR
-    lbl_q = "س" if ar else "Q"
-    lbl_eleve = "إجابة التلميذ" if ar else "Réponse de l'élève"
-    lbl_bonne = "الإجابة الصحيحة" if ar else "Bonne réponse"
-    lbl_expl = "الشرح" if ar else "Explication"
-
-    lignes = []
-    for i, r in enumerate(resultats, 1):
-        statut = "✓" if r.est_correct else "✗"
-        ligne = (
-            f"{lbl_q}{i} [{statut}] {r.question}\n"
-            f"   {lbl_eleve} : {r.libelle_reponse_eleve}\n"
-            f"   {lbl_bonne} : {r.libelle_bonne_reponse}"
-        )
-        if r.explication:
-            ligne += f"\n   {lbl_expl} : {r.explication}"
-        lignes.append(ligne)
-
+def _build_bilan_message(resultats: list[ResultatQuestion], lang: str = LANG_FR) -> str:
+    """Construit le message utilisateur : score + notions agrégées (sans questions)."""
     score = sum(1 for r in resultats if r.est_correct)
     total = len(resultats)
-    if ar:
-        header = f"النتيجة: {score}/{total}\n\nتفصيل الأسئلة:\n"
+    pct = round(score / total * 100) if total else 0
+
+    acquises, lacunes = _agreger_notions(resultats)
+
+    if lang == LANG_AR:
+        lignes = [f"النتيجة: {score} من {total} ({pct}%)"]
+        if lacunes:
+            lignes.append("المفاهيم الواجب تعزيزها: " + "، ".join(lacunes))
+        if acquises:
+            lignes.append("المفاهيم المكتسبة: " + "، ".join(acquises))
+        if not lacunes and not acquises:
+            lignes.append("لا توجد كلمات مفتاحية محددة في الأسئلة.")
     else:
-        header = f"Score : {score}/{total}\n\nDétail des questions :\n"
-    return header + "\n\n".join(lignes)
+        lignes = [f"Score : {score}/{total} ({pct}%)"]
+        if lacunes:
+            lignes.append("Notions à consolider : " + ", ".join(lacunes))
+        if acquises:
+            lignes.append("Notions acquises : " + ", ".join(acquises))
+        if not lacunes and not acquises:
+            lignes.append("Aucun mot-clé de notion fourni dans les questions.")
+
+    return "\n".join(lignes)
 
 
 def generer_bilan(
@@ -144,22 +131,20 @@ def generer_bilan(
     model_label: str = DEFAULT_MODEL,
     lang: str = LANG_FR,
 ) -> str:
-    """Appelle le LLM pour produire le bilan pédagogique.
+    """Appelle le LLM pour produire le bilan pédagogique oral.
 
     Lève LLMError en cas de problème technique.
     """
-    system_prompt = _build_bilan_prompt(cours_texte, lang=lang)
-    question_text = _build_bilan_question(resultats, lang=lang)
+    system_prompt = _build_bilan_prompt(lang=lang)
+    message = _build_bilan_message(resultats, lang=lang)
 
     brut = call_one(
-        question=question_text,
+        question=message,
         system_prompt=system_prompt,
         api_key=api_key,
         model_label=model_label,
         add_consigne=False,
-        max_tokens=800,
+        max_tokens=400,
         lang=lang,
     )
-    # Filet de sécurité : si le modèle produit malgré tout du LaTeX, on le
-    # convertit en symboles unicode (cohérent avec le nettoyage du cours).
     return nettoie_latex(brut)

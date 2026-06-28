@@ -339,7 +339,13 @@ if mode == MODE_BILAN:
         else:
             st.divider()
             st.subheader("📝 Bilan pédagogique")
-            write_msg(bilan_texte, lang=langue)
+            if langue == LANG_AR:
+                st.markdown(
+                    f'<div dir="rtl" style="text-align:right;line-height:2">{_html.escape(bilan_texte)}</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(bilan_texte)
 
         st.divider()
         if st.button("🔄 Recommencer l'évaluation"):
