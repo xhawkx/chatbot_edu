@@ -8,6 +8,9 @@ fluide prêt pour la synthèse vocale (3 paragraphes, sans équations ni markdow
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+import io
+from gtts import gTTS
+
 from core.llm import call_one, DEFAULT_MODEL
 from core.prompt import LANG_FR, LANG_AR
 from core.latex import nettoie_latex
@@ -122,6 +125,15 @@ def _build_bilan_message(resultats: list[ResultatQuestion], lang: str = LANG_FR)
             lignes.append("Aucun mot-clé de notion fourni dans les questions.")
 
     return "\n".join(lignes)
+
+
+def bilan_vers_audio(texte: str, lang: str = LANG_FR) -> bytes:
+    """Convertit le texte du bilan en MP3 via gTTS. Retourne les bytes du MP3."""
+    code_lang = "ar" if lang == LANG_AR else "fr"
+    buf = io.BytesIO()
+    gTTS(text=texte, lang=code_lang, slow=False).write_to_fp(buf)
+    buf.seek(0)
+    return buf.read()
 
 
 def generer_bilan(

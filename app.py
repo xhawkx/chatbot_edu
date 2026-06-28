@@ -13,7 +13,7 @@ from core.config import liste_cours, charge_cours
 from core.pipeline.orchestrator import repond
 from core.pipeline.generator import GENERATOR_MODEL
 from core.pipeline.judge import JUDGE_MODEL
-from core.bilan import ResultatQuestion, generer_bilan
+from core.bilan import ResultatQuestion, generer_bilan, bilan_vers_audio
 
 st.set_page_config(page_title="Chatbot pédagogique v2", page_icon="📚", layout="centered")
 
@@ -143,6 +143,7 @@ with st.sidebar:
                 st.session_state["quiz_reponses"] = {}
                 st.session_state["quiz_termine"] = False
                 st.session_state["bilan_texte"] = None
+                st.session_state["bilan_audio"] = None
                 st.success(f"{len(questions_json)} question(s) chargée(s).")
             except Exception as exc:
                 st.error(f"Fichier JSON invalide : {exc}")
@@ -347,12 +348,25 @@ if mode == MODE_BILAN:
             else:
                 st.markdown(bilan_texte)
 
+            # ── Conversion audio ─────────────────────────────────────
+            if st.button("🔊 Écouter le bilan"):
+                with st.spinner("Génération de l'audio…" if langue == LANG_FR else "جارٍ إنشاء الصوت…"):
+                    try:
+                        audio_bytes = bilan_vers_audio(bilan_texte, lang=langue)
+                        st.session_state["bilan_audio"] = audio_bytes
+                    except Exception as e:
+                        st.error(f"Erreur audio : {e}")
+
+            if st.session_state.get("bilan_audio"):
+                st.audio(st.session_state["bilan_audio"], format="audio/mp3")
+
         st.divider()
         if st.button("🔄 Recommencer l'évaluation"):
             st.session_state["quiz_index"] = 0
             st.session_state["quiz_reponses"] = {}
             st.session_state["quiz_termine"] = False
             st.session_state["bilan_texte"] = None
+            st.session_state["bilan_audio"] = None
             st.rerun()
 
     st.stop()
