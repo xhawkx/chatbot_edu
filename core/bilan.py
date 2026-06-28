@@ -8,12 +8,66 @@ fluide prêt pour la synthèse vocale (3 paragraphes, sans équations ni markdow
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+import asyncio
 import io
-from gtts import gTTS
+
+import edge_tts
 
 from core.llm import call_one, DEFAULT_MODEL
 from core.prompt import LANG_FR, LANG_AR
 from core.latex import nettoie_latex
+
+# ── Providers TTS disponibles ──────────────────────────────────────────────
+# `voix` indique si le provider expose un choix Homme/Femme dans l'IHM.
+TTS_PROVIDERS = {
+    "Edge TTS (Microsoft)": {
+        "key": "edge",
+        "voix": True,
+        "description": "Voix neurales Microsoft ar-DZ / fr-FR — gratuit, nécessite internet",
+    },
+    "gTTS (Google Translate)": {
+        "key": "gtts",
+        "voix": False,
+        "description": "Voix Google Translate ar / fr — gratuit, accent plus naturel",
+    },
+}
+DEFAULT_TTS = "Edge TTS (Microsoft)"
+
+# Voix neurales Microsoft — voix algériennes pour l'arabe (ar-DZ), françaises pour le français
+VOIX_FR = {"Homme": "fr-FR-HenriNeural", "Femme": "fr-FR-DeniseNeural"}
+VOIX_AR = {"Homme": "ar-DZ-IsmaelNeural", "Femme": "ar-DZ-AminaNeural"}
+
+# Prosodie par langue : débit légèrement ralenti + ton posé → rythme d'enseignant
+# pitch en Hz (format attendu par edge-tts), rate en %
+_PROSODY = {
+    "fr": {"rate": "-12%", "pitch": "-4Hz"},
+    "ar": {"rate": "-15%", "pitch": "-5Hz"},
+}
+
+
+async def _synthese_async(texte: str, voix: str, lang_key: str = "fr") -> bytes:
+    # Le proxy d'entreprise re-signe les certificats TLS avec sa propre CA.
+    # edge-tts construit un contexte SSL au niveau module (communicate._SSL_CTX,
+    # basé sur certifi) qu'il passe explicitement à ws_connect(ssl=...).
+    # On désactive la vérification sur cet objet précis le temps de l'appel.
+    import ssl as _ssl
+    from edge_tts import communicate as _edge_comm
+
+    p = _PROSODY.get(lang_key, {"rate": "-10%", "pitch": "-3Hz"})
+    ctx = _edge_comm._SSL_CTX
+    _saved = (ctx.check_hostname, ctx.verify_mode)
+    ctx.check_hostname = False
+    ctx.verify_mode = _ssl.CERT_NONE
+    try:
+        buf = io.BytesIO()
+        communicate = edge_tts.Communicate(texte, voix, rate=p["rate"], pitch=p["pitch"])
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                buf.write(chunk["data"])
+        buf.seek(0)
+        return buf.read()
+    finally:
+        ctx.check_hostname, ctx.verify_mode = _saved
 
 
 @dataclass
@@ -64,36 +118,37 @@ def _agreger_notions(resultats: list[ResultatQuestion]) -> tuple[list[str], list
 
 def _build_bilan_prompt(lang: str = LANG_FR) -> str:
     if lang == LANG_AR:
-        return """أنت معلّم يُعِدّ تقريراً شفهياً موجزاً لتلميذ بعد تقييم.
+        return """أنتَ مُعلِّمٌ تُخاطِبُ تِلميذَكَ مُباشَرةً بَعدَ تَقييمٍ. تَكلَّمْ مَعَهُ بِضَميرِ المُخاطَبِ (أنتَ).
 
-مهمتك: كتابة نص متدفّق يُقرأ بصوت عالٍ، مقسَّم إلى 3 فقرات فقط:
+مَهمَّتُكَ: كِتابةُ نَصٍّ مُتدفِّقٍ يُقرَأُ بِصَوتٍ عالٍ، مُقسَّمٌ إلى 3 فَقَراتٍ فَقَط:
 
-الفقرة 1 — الأداء العام: اذكر النسبة المئوية للإجابات الصحيحة وأعطِ رأياً موجزاً في هذه النتيجة.
-الفقرة 2 — نقاط الضعف أولاً: المفاهيم التي يحتاج التلميذ إلى تعزيزها، بأسمائها فقط، دون ذكر معادلات أو أنواع الأسئلة.
-الفقرة 3 — نقاط القوة ثم التوجيه: المفاهيم التي يتقنها التلميذ، ثم جملة تشجيعية توجّهه نحو مواصلة العمل لسدّ الثغرات.
+الفَقرةُ 1 — الأداءُ العامُّ: خاطِبِ التِّلميذَ مُباشَرةً بِالنِّسبةِ المِئَويَّةِ لِإِجاباتِهِ الصَّحيحةِ وأَعطِهِ رَأيَكَ المُوجَزَ.
+الفَقرةُ 2 — نِقاطُ الضَّعفِ: أَخبِرهُ بِالمَفاهيمِ الَّتي يَحتاجُ إلى تَعزيزِها، بِأَسمائِها فَقَط، دونَ ذِكرِ مُعادَلاتٍ.
+الفَقرةُ 3 — نِقاطُ القُوَّةِ ثُمَّ التَّوجيهُ: المَفاهيمُ الَّتي يُتقِنُها، ثُمَّ جُملةٌ تَشجيعيَّةٌ تَدفَعُهُ إلى مُواصَلةِ العَمَلِ.
 
-القواعد الصارمة:
-- نص مستمر فقط: لا عناوين، لا قوائم نقطية، لا نجوم، لا شرطات في بداية السطر.
-- لا معادلات ولا صيغ رياضية من أي نوع.
-- سمِّ المفاهيم باسمها (مثل: التحليل، الضرب، المتطابقات...) دون أي تفصيل تقني.
-- أسلوب بسيط ومناسب لتلميذ في المتوسط، نبرة مشجّعة.
-- حوالي 80 كلمة كحد أقصى.
-- ابدأ مباشرةً بالفقرة الأولى.
-- أجب باللغة العربية."""
+القَواعِدُ الصَّارِمةُ:
+- نَصٌّ مُستمِرٌّ فَقَط: لا عَناوينَ، لا قَوائِمَ نُقطيَّةً، لا نُجومَ، لا شُرَطَ في بِدايةِ السَّطرِ.
+- لا مُعادَلاتٍ ولا صِيَغَ رِياضيَّةً مِن أيِّ نَوعٍ.
+- سَمِّ المَفاهيمَ بِاسمِها دونَ أيِّ تَفصيلٍ تِقنيٍّ.
+- أُسلوبٌ بَسيطٌ مُناسِبٌ لِتِلميذٍ في المُتوسِّطِ، نَبرةٌ مُشجِّعةٌ وحَميمةٌ.
+- حَوالي 80 كَلمةً كَحَدٍّ أَقصى.
+- ضَعِ التَّشكيلَ الكامِلَ (الحَرَكاتِ) على كُلِّ الكَلِماتِ لِيَكونَ النُّطقُ واضِحاً.
+- ابدَأ مُباشَرةً بِالفَقرةِ الأولى.
+- أَجِبْ بِاللُّغةِ العَرَبيَّةِ."""
 
-    return """Tu es un enseignant qui prépare un compte-rendu oral et concis pour un élève après une évaluation.
+    return """Tu es un enseignant qui s'adresse directement à son élève après une évaluation. Parle-lui à la deuxième personne du singulier (tu).
 
 Ta mission : écrire un texte fluide destiné à être lu à voix haute, en 3 paragraphes seulement :
 
-Paragraphe 1 — Performance globale : cite le pourcentage de bonnes réponses et donne un avis bref sur ce résultat.
-Paragraphe 2 — Points faibles d'abord : les notions que l'élève doit travailler, nommées simplement, sans équations ni types de questions.
-Paragraphe 3 — Points forts puis trajectoire : les notions maîtrisées, puis une phrase d'encouragement qui incite l'élève à combler ses lacunes.
+Paragraphe 1 — Performance globale : interpelle l'élève directement avec son pourcentage de bonnes réponses et donne-lui ton avis bref et sincère.
+Paragraphe 2 — Points faibles d'abord : dis-lui les notions qu'il doit travailler, nommées simplement, sans équations ni types de questions.
+Paragraphe 3 — Points forts puis trajectoire : les notions qu'il maîtrise, puis une phrase d'encouragement qui l'incite à combler ses lacunes.
 
 Règles strictes :
 - Texte continu uniquement : pas de titres, pas de listes à puces, pas d'astérisques, pas de tirets en début de ligne.
 - Aucune équation, aucune formule mathématique d'aucune sorte.
 - Nomme les notions par leur nom (ex : factorisation, identités remarquables, développement…) sans détail technique.
-- Style simple adapté à un élève de collège, ton encourageant.
+- Style simple adapté à un élève de collège, ton chaleureux et encourageant.
 - Environ 80 mots maximum.
 - Commence directement par le premier paragraphe.
 - Réponds en français."""
@@ -127,13 +182,40 @@ def _build_bilan_message(resultats: list[ResultatQuestion], lang: str = LANG_FR)
     return "\n".join(lignes)
 
 
-def bilan_vers_audio(texte: str, lang: str = LANG_FR) -> bytes:
-    """Convertit le texte du bilan en MP3 via gTTS. Retourne les bytes du MP3."""
-    code_lang = "ar" if lang == LANG_AR else "fr"
+def _synthese_gtts(texte: str, lang: str = LANG_FR) -> bytes:
+    """Synthèse via gTTS (Google Translate TTS) — gratuit, accent naturel."""
+    from gtts import gTTS
+    lang_code = "ar" if lang == LANG_AR else "fr"
     buf = io.BytesIO()
-    gTTS(text=texte, lang=code_lang, slow=False).write_to_fp(buf)
+    tts = gTTS(text=texte, lang=lang_code, slow=True)
+    tts.write_to_fp(buf)
     buf.seek(0)
     return buf.read()
+
+
+
+def bilan_vers_audio(
+    texte: str,
+    lang: str = LANG_FR,
+    genre: str = "Femme",
+    tts_provider: str = DEFAULT_TTS,
+) -> tuple[bytes, str]:
+    """Convertit le texte du bilan en audio.
+
+    `tts_provider`  : clé d'affichage du dict TTS_PROVIDERS.
+    `genre`         : "Femme" ou "Homme" — utilisé par Edge TTS.
+    Retourne (bytes_audio, format) avec format = "audio/mp3".
+    """
+    provider_key = TTS_PROVIDERS.get(tts_provider, TTS_PROVIDERS[DEFAULT_TTS])["key"]
+
+    if provider_key == "gtts":
+        return _synthese_gtts(texte, lang=lang), "audio/mp3"
+
+    # Défaut : Edge TTS
+    voix_map = VOIX_AR if lang == LANG_AR else VOIX_FR
+    voix = voix_map.get(genre, list(voix_map.values())[0])
+    lang_key = "ar" if lang == LANG_AR else "fr"
+    return asyncio.run(_synthese_async(texte, voix, lang_key)), "audio/mp3"
 
 
 def generer_bilan(
